@@ -1,0 +1,9 @@
+{
+    "name": "jes5199/PedanticQuerent",
+    "description": "Exception-throwing wrapper for PHP's PDO",
+    "type": "library",
+    "autoload": {
+        "psr-4": { "PedanticQuerent\\": "src/" }
+    }
+}
+
