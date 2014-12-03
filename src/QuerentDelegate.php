@@ -27,6 +27,10 @@ trait QuerentDelegate {
         return $this->querent;
     }
 
+    public function inTransaction($function) {
+        return $this->querent()->inTransaction($function);
+    }
+
     // I don't really want this to be public but I can't quite get rid of it yet.
     function executeSQL($query, $args) {
         return $this->querent()->executeSQL($query, $args);

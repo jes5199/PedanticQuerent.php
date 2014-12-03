@@ -22,8 +22,11 @@ use \PedanticQuerent\Exception\NoAutoIncrementKeyUpdated;
  */
 class Querent {
     private $pdo;
+    private $transactionDepth;
+
     function __construct($pdo) {
         $this->pdo = $pdo;
+        $this->transactionDepth = 0;
     }
 
     protected function pdo() {
@@ -34,6 +37,47 @@ class Querent {
         $pdo_statement = $this->pdo()->prepare($statement);
         $pdo_statement->setFetchMode(\PDO::FETCH_ASSOC);
         return $pdo_statement;
+    }
+
+    protected function startTransaction() {
+        if ($this->transactionDepth == 0) {
+            $this->pdo()->beginTransaction();
+        } else {
+            $this->exec("SAVEPOINT LEVEL{$this->transactionDepth}");
+        }
+        $this->transactionDepth += 1;
+    }
+
+    protected function commitTransaction() {
+        $this->transactionDepth -= 1;
+
+        if ($this->transactionDepth == 0) {
+            $this->pdo()->commit();
+        } else {
+            $this->exec("RELEASE LEVEL{$this->transactionDepth}");
+        }
+    }
+
+    protected function rollbackTransaction() {
+        $this->transactionDepth -= 1;
+
+        if ($this->transactionDepth == 0) {
+            $this->pdo()->rollBack();
+        } else {
+            $this->exec("ROLLBACK TO LEVEL{$this->transactionDepth}");
+        }
+    }
+
+    public function inTransaction($function) {
+        $this->startTransaction();
+        try {
+            $returnValue = $function();
+        } catch (\Exception $e) {
+            $this->rollbackTransaction();
+            throw $e;
+        }
+        $this->commitTransaction();
+        return $returnValue;
     }
 
     function executeSQL($querySQL, $bindings = array()) {
@@ -119,57 +163,67 @@ class Querent {
      * returns count
      */
     function insertSome(InsertQuery $query) {
-        $count = $this->executeQueryAffectingRows($query);
-        WrongNumberOfInserts::throwUnlessSome($count);
-        return $count;
+        return $this->inTransaction(function() use (&$query) {
+            $count = $this->executeQueryAffectingRows($query);
+            WrongNumberOfInserts::throwUnlessSome($count);
+            return $count;
+        });
     }
 
     /*
      * inserts exactly one row
      */
     function insertOne(InsertQuery $query) {
-        $count = $this->executeQueryAffectingRows($query);
-        WrongNumberOfInserts::throwUnlessOne($count);
-        return $count;
+        return $this->inTransaction(function() use (&$query) {
+            $count = $this->executeQueryAffectingRows($query);
+            WrongNumberOfInserts::throwUnlessOne($count);
+            return $count;
+        });
     }
 
     /*
      * inserts exactly one row, returns the ID
      */
     function insertOneWithNewID(InsertQuery $query) {
-        $count = $this->executeQueryAffectingRows($query);
-        WrongNumberOfInserts::throwUnlessOne($count);
-        $id = $this->lastInsertID();
-        if ($id <= 0) {
-            throw new NoAutoIncrementKeyUpdated($id);
-        }
-        return $id;
+        return $this->inTransaction(function() use (&$query) {
+            $count = $this->executeQueryAffectingRows($query);
+            WrongNumberOfInserts::throwUnlessOne($count);
+            $id = $this->lastInsertID();
+            if ($id <= 0) {
+                throw new NoAutoIncrementKeyUpdated($id);
+            }
+            return $id;
+        });
     }
 
     /*
      * inserts one or zero rows, returns 1 or 0
      */
     function insertMaybe(InsertQuery $query) {
-        $count = $this->executeQueryAffectingRows($query);
-        WrongNumberOfInserts::throwUnlessMaybe($count);
-        return $count;
+        return $this->inTransaction(function() use (&$query) {
+            $count = $this->executeQueryAffectingRows($query);
+            WrongNumberOfInserts::throwUnlessMaybe($count);
+            return $count;
+        });
     }
 
     /*
      * inserts one or zero rows, returns the ID or null
      */
     function insertMaybeWithNewID(InsertQuery $query) {
-        $count = $this->executeQueryAffectingRows($query);
-        WrongNumberOfInserts::throwUnlessMaybe($count);
-        if ($count > 0) {
-            $id = $this->lastInsertID();
-            if ($id <= 0) {
-                throw new NoAutoIncrementKeyUpdated($id);
+        return $this->inTransaction(function() use (&$query) {
+            $count = $this->executeQueryAffectingRows($query);
+            WrongNumberOfInserts::throwUnlessMaybe($count);
+            if ($count > 0) {
+                $id = $this->lastInsertID();
+                if ($id <= 0) {
+                    throw new NoAutoIncrementKeyUpdated($id);
+                }
+                return $id;
+            } else {
+                return null;
             }
-            return $id;
-        } else {
-            return null;
-        }
+        });
     }
 
     /*
@@ -184,18 +238,22 @@ class Querent {
      * updates at least one row
      */
     function updateSome(UpdateQuery $query) {
-        $count = $this->executeQueryAffectingRows($query);
-        WrongNumberOfUpdates::throwUnlessSome($count);
-        return $count;
+        return $this->inTransaction(function() use (&$query) {
+            $count = $this->executeQueryAffectingRows($query);
+            WrongNumberOfUpdates::throwUnlessSome($count);
+            return $count;
+        });
     }
 
     /*
      * updates exactly one row
      */
     function updateOne(UpdateQuery $query) {
-        $count = $this->executeQueryAffectingRows($query);
-        WrongNumberOfUpdates::throwUnlessOne($count);
-        return $count;
+        return $this->inTransaction(function() use (&$query) {
+            $count = $this->executeQueryAffectingRows($query);
+            WrongNumberOfUpdates::throwUnlessOne($count);
+            return $count;
+        });
     }
 
     /*
@@ -203,9 +261,11 @@ class Querent {
      * returns the number of rows updated
      */
     function updateMaybe(UpdateQuery $query) {
-        $count = $this->executeQueryAffectingRows($query);
-        WrongNumberOfUpdates::throwUnlessMaybe($count);
-        return $count;
+        return $this->inTransaction(function() use (&$query) {
+            $count = $this->executeQueryAffectingRows($query);
+            WrongNumberOfUpdates::throwUnlessMaybe($count);
+            return $count;
+        });
     }
 
     /*
@@ -220,18 +280,22 @@ class Querent {
      * upserts at least one row
      */
     function upsertSome(UpsertQuery $query) {
-        $count = $this->executeQueryAffectingRows($query);
-        WrongNumberOfUpserts::throwUnlessSome($count);
-        return $count;
+        return $this->inTransaction(function() use (&$query) {
+            $count = $this->executeQueryAffectingRows($query);
+            WrongNumberOfUpserts::throwUnlessSome($count);
+            return $count;
+        });
     }
 
     /*
      * upserts exactly one row
      */
     function upsertOne(UpsertQuery $query) {
-        $count = $this->executeQueryAffectingRows($query);
-        WrongNumberOfUpserts::throwUnlessOne($count);
-        return $count;
+        return $this->inTransaction(function() use (&$query) {
+            $count = $this->executeQueryAffectingRows($query);
+            WrongNumberOfUpserts::throwUnlessOne($count);
+            return $count;
+        });
     }
 
     /*
@@ -239,11 +303,12 @@ class Querent {
      * returns the number of rows upsertd
      */
     function upsertMaybe(UpsertQuery $query) {
-        $count = $this->executeQueryAffectingRows($query);
-        WrongNumberOfUpserts::throwUnlessMaybe($count);
-        return $count;
+        return $this->inTransaction(function() use (&$query) {
+            $count = $this->executeQueryAffectingRows($query);
+            WrongNumberOfUpserts::throwUnlessMaybe($count);
+            return $count;
+        });
     }
-
 
     /*
      * deletes any number of rows
@@ -257,18 +322,22 @@ class Querent {
      * deletes at least one row
      */
     function deleteSome(DeleteQuery $query) {
-        $count = $this->executeQueryAffectingRows($query);
-        WrongNumberOfDeletes::throwUnlessSome($count);
-        return $count;
+        return $this->inTransaction(function() use (&$query) {
+            $count = $this->executeQueryAffectingRows($query);
+            WrongNumberOfDeletes::throwUnlessSome($count);
+            return $count;
+        });
     }
 
     /*
      * deletes exactly one row
      */
     function deleteOne(DeleteQuery $query) {
-        $count = $this->executeQueryAffectingRows($query);
-        WrongNumberOfDeletes::throwUnlessOne($count);
-        return $count;
+        return $this->inTransaction(function() use (&$query) {
+            $count = $this->executeQueryAffectingRows($query);
+            WrongNumberOfDeletes::throwUnlessOne($count);
+            return $count;
+        });
     }
 
     /*
@@ -276,8 +345,10 @@ class Querent {
      * returns the number of rows deleted
      */
     function deleteMaybe(DeleteQuery $query) {
-        $count = $this->executeQueryAffectingRows($query);
-        WrongNumberOfDeletes::throwUnlessMaybe($count);
-        return $count;
+        return $this->inTransaction(function() use (&$query) {
+            $count = $this->executeQueryAffectingRows($query);
+            WrongNumberOfDeletes::throwUnlessMaybe($count);
+            return $count;
+        });
     }
 }
