@@ -2,7 +2,7 @@
     "name": "jes5199/PedanticQuerent",
     "description": "Exception-throwing wrapper for PHP's PDO",
     "type": "library",
-    "version": "0.0.2",
+    "version": "0.0.3",
     "autoload": {
         "psr-4": { "PedanticQuerent\\": "src/" }
     }
