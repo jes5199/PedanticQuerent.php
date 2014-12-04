@@ -5,9 +5,9 @@ abstract class RawSQL {
     private $rawSQL;
     private $bindings;
 
-    function __construct($rawSQL) {
+    function __construct($rawSQL, array $bindings = []) {
         $this->rawSQL = $rawSQL;
-        $this->bindings = array();
+        $this->bindings = $bindings;
     }
 
     function bind($var, $value) {
